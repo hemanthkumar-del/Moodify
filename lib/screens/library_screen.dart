@@ -346,7 +346,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: () {
-        provider.playSong(song, provider.allSongs);
+        provider.playSong(song, provider.allSongs, context: context);
       },
       onLongPress: () => _showSongOptionsSheet(context, provider, song),
       child: GlassCard(
@@ -638,7 +638,20 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     final genreController = TextEditingController(text: song.genre);
     String selectedMood = song.mood;
 
-    final moods = ["Happy", "Sad", "Relax", "Workout", "Romantic", "Lonely", "Study", "Sleep"];
+    final moods = [
+      "Happy",
+      "Sad",
+      "Relax",
+      "Workout",
+      "Romantic",
+      "Party",
+      "Study",
+      "Travel",
+      "Sleep",
+      "Motivation",
+      "Calm",
+      "Energetic"
+    ];
 
     showDialog(
       context: context,
@@ -678,7 +691,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                       spacing: 8,
                       runSpacing: 4,
                       children: moods.map((m) {
-                        final isSelected = selectedMood == m;
+                        final isSelected = selectedMood.toLowerCase() == m.toLowerCase();
                         return ChoiceChip(
                           label: Text(m),
                           selected: isSelected,
@@ -708,6 +721,9 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                       album: albumController.text.trim().isEmpty ? "Unknown Album" : albumController.text.trim(),
                       genre: genreController.text.trim().isEmpty ? "Unknown Genre" : genreController.text.trim(),
                       mood: selectedMood,
+                      primaryMood: selectedMood,
+                      confidence: 1.0,
+                      analyzedAt: DateTime.now().toIso8601String(),
                     );
                     provider.updateSongDetails(updated);
                     Navigator.of(context).pop();
@@ -920,7 +936,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
 
         return GestureDetector(
           onTap: () {
-            provider.playSong(firstSong, albumSongs);
+            provider.playSong(firstSong, albumSongs, context: context);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text("Playing album: $albumName")),
             );
@@ -1065,7 +1081,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
           ),
           trailing: Icon(Icons.chevron_right_rounded, color: isDark ? Colors.white30 : Colors.black38),
           onTap: () {
-            provider.playSong(firstSong, artistSongs);
+            provider.playSong(firstSong, artistSongs, context: context);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text("Playing songs by: $artistName")),
             );

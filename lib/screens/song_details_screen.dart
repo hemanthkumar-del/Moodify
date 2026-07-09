@@ -329,21 +329,39 @@ class _SongDetailsScreenState extends State<SongDetailsScreen> with SingleTicker
                           alignment: Alignment.centerLeft,
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: primaryAccent.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: primaryAccent.withValues(alpha: 0.3), width: 1.0),
-                              ),
-                              child: Text(
-                                "${song.mood} Vibe",
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: primaryAccent,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: primaryAccent.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: primaryAccent.withValues(alpha: 0.3), width: 1.0),
+                                  ),
+                                  child: Text(
+                                    song.analyzedAt.isEmpty
+                                        ? "${song.mood} Vibe"
+                                        : "${song.primaryMood} (${(song.confidence * 100).round()}%) • ${song.secondaryMood}",
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: primaryAccent,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                if (song.bitrate > 0 && song.sampleRate > 0) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    "${song.bitrate} kbps • ${(song.sampleRate / 1000).toStringAsFixed(1)} kHz Audio Quality",
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500,
+                                      color: isDark ? Colors.white38 : Colors.black38,
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
                         ),
@@ -617,7 +635,7 @@ class _SongDetailsScreenState extends State<SongDetailsScreen> with SingleTicker
                                 final rSong = relatedSongs[index];
                                 return GestureDetector(
                                   onTap: () {
-                                    provider.playSong(rSong, recommendedSongs);
+                                    provider.playSong(rSong, recommendedSongs, context: context);
                                   },
                                   child: Container(
                                     width: 100,

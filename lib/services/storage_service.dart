@@ -69,4 +69,33 @@ class StorageService {
   Future<void> setNotificationsEnabled(bool value) async {
     await _prefs?.setBool(_keyNotificationsEnabled, value);
   }
+
+  // Playback resume storage helpers
+  static const String _keyLastSongId = 'last_played_song_id';
+  static const String _keyLastPosition = 'last_playback_position';
+  static const String _keyLastQueue = 'last_playlist_queue_ids';
+
+  String? getLastSongId() {
+    return _prefs?.getString(_keyLastSongId);
+  }
+
+  Future<void> setLastSongId(String value) async {
+    await _prefs?.setString(_keyLastSongId, value);
+  }
+
+  int getLastPosition() {
+    return _prefs?.getInt(_keyLastPosition) ?? 0;
+  }
+
+  Future<void> setLastPosition(int value) async {
+    await _prefs?.setInt(_keyLastPosition, value);
+  }
+
+  List<String> getLastQueue() {
+    return _prefs?.getStringList(_keyLastQueue) ?? [];
+  }
+
+  Future<void> saveLastQueue(List<String> queue) async {
+    await _prefs?.setStringList(_keyLastQueue, queue);
+  }
 }

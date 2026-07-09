@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
@@ -18,21 +19,36 @@ class AudioPlayerService {
   // Singleton instance
   static final AudioPlayerService _instance = AudioPlayerService._internal();
   factory AudioPlayerService() => _instance;
-  AudioPlayerService._internal();
 
   final AudioPlayer _player = AudioPlayer();
   List<SongModel> _currentPlaylist = [];
-  ConcatenatingAudioSource? _playlistSource;
+  int _currentIndex = 0;
+
+  // BehaviorSubjects to broadcast current song and index safely
+  final BehaviorSubject<int?> _currentIndexSubject = BehaviorSubject<int?>.seeded(null);
+  final BehaviorSubject<SongModel?> _currentSongSubject = BehaviorSubject<SongModel?>.seeded(null);
+
+  // Constructor
+  AudioPlayerService._internal() {
+    // Listen to player completion to advance queue automatically
+    _player.processingStateStream.listen((state) {
+      if (state == ProcessingState.completed) {
+        next();
+      }
+    });
+  }
 
   // Getters
   AudioPlayer get player => _player;
   List<SongModel> get currentPlaylist => _currentPlaylist;
+  int get currentIndex => _currentIndex;
   
-  SongModel? get currentSong {
-    final index = _player.currentIndex;
-    if (index == null || index < 0 || index >= _currentPlaylist.length) return null;
-    return _currentPlaylist[index];
-  }
+  SongModel? get currentSong => _currentSongSubject.value;
+
+  // Streams for UI updates
+  Stream<int?> get currentIndexStream => _currentIndexSubject.stream;
+  Stream<SongModel?> get currentSongStream => _currentSongSubject.stream;
+  Stream<bool> get isPlayingStream => _player.playingStream;
 
   // Initialize background settings and audio focus sessions
   static Future<void> initBackground() async {
@@ -78,74 +94,95 @@ class AudioPlayerService {
 
   // Set the playlist queue and load the track
   Future<void> setPlaylist(List<SongModel> songs, int initialIndex) async {
+    if (songs.isEmpty) return;
     _currentPlaylist = List<SongModel>.from(songs);
-    
-    final List<AudioSource> sources = [];
-    for (var song in songs) {
-      final isAsset = song.localPath.startsWith('assets/');
-      
-      final artUri = song.coverPath.startsWith('assets/')
-          ? Uri.parse("asset:///${song.coverPath}")
-          : (song.coverPath.isNotEmpty ? Uri.file(song.coverPath) : null);
+    await playAtIndex(initialIndex);
+  }
 
-      if (isAsset) {
-        sources.add(
-          AudioSource.asset(
-            song.localPath,
-            tag: MediaItem(
-              id: song.id,
-              album: song.album,
-              title: song.title,
-              artist: song.artist,
-              artUri: artUri,
-            ),
-          ),
-        );
-      } else {
-        sources.add(
-          AudioSource.file(
-            song.localPath,
-            tag: MediaItem(
-              id: song.id,
-              album: song.album,
-              title: song.title,
-              artist: song.artist,
-              artUri: artUri,
-            ),
-          ),
-        );
+  // Play target index using setFilePath
+  Future<void> playAtIndex(int index) async {
+    if (index < 0 || index >= _currentPlaylist.length) return;
+    _currentIndex = index;
+    final song = _currentPlaylist[index];
+
+    // File validation check
+    if (!song.localPath.startsWith('assets/')) {
+      final file = File(song.localPath);
+      if (!await file.exists()) {
+        // Broadcast error and remove from index state
+        _currentIndexSubject.add(null);
+        _currentSongSubject.add(null);
+        throw FileNotFoundException("File not found: ${song.localPath}");
       }
     }
 
-    _playlistSource = ConcatenatingAudioSource(children: sources);
-    
+    final artUri = song.coverPath.startsWith('assets/')
+        ? Uri.parse("asset:///${song.coverPath}")
+        : (song.coverPath.isNotEmpty ? Uri.file(song.coverPath) : null);
+
     try {
-      await _player.setAudioSource(_playlistSource!, initialIndex: initialIndex);
+      // Load file using setFilePath
+      await _player.setFilePath(
+        song.localPath,
+        tag: MediaItem(
+          id: song.id,
+          album: song.album,
+          title: song.title,
+          artist: song.artist,
+          artUri: artUri,
+        ),
+      );
+      
+      // Update subjects to trigger stream listeners
+      _currentIndexSubject.add(_currentIndex);
+      _currentSongSubject.add(song);
     } catch (e) {
-      debugPrint("Error setting audio source: $e");
+      debugPrint("Error loading file path in player: $e");
+      // Broadcast null state and skip gracefully if in playlist
+      _currentIndexSubject.add(null);
+      _currentSongSubject.add(null);
+      throw Exception("Codec / Audio format not supported: $e");
     }
   }
 
   // Queue manipulation
-  Future<void> moveQueueItem(int currentIndex, int newIndex) async {
-    if (_playlistSource != null && currentIndex >= 0 && newIndex >= 0) {
-      try {
-        await _playlistSource!.move(currentIndex, newIndex);
-        final item = _currentPlaylist.removeAt(currentIndex);
-        _currentPlaylist.insert(newIndex, item);
-      } catch (e) {
-        debugPrint("Error moving queue item: $e");
+  Future<void> moveQueueItem(int oldIndex, int newIndex) async {
+    if (oldIndex >= 0 && newIndex >= 0 && oldIndex < _currentPlaylist.length && newIndex < _currentPlaylist.length) {
+      final item = _currentPlaylist.removeAt(oldIndex);
+      _currentPlaylist.insert(newIndex, item);
+      
+      if (_currentIndex == oldIndex) {
+        _currentIndex = newIndex;
+        _currentIndexSubject.add(_currentIndex);
+      } else if (_currentIndex > oldIndex && _currentIndex <= newIndex) {
+        _currentIndex--;
+        _currentIndexSubject.add(_currentIndex);
+      } else if (_currentIndex < oldIndex && _currentIndex >= newIndex) {
+        _currentIndex++;
+        _currentIndexSubject.add(_currentIndex);
       }
     }
   }
 
   Future<void> removeQueueItem(int index) async {
-    if (_playlistSource != null && index >= 0 && index < _currentPlaylist.length) {
-      try {
-        await _playlistSource!.removeAt(index);
-        _currentPlaylist.removeAt(index);
-      } catch (e) {
-        debugPrint("Error removing queue item: $e");
+    if (index >= 0 && index < _currentPlaylist.length) {
+      _currentPlaylist.removeAt(index);
+      
+      if (_currentIndex == index) {
+        if (_currentPlaylist.isEmpty) {
+          await stop();
+          _currentIndexSubject.add(null);
+          _currentSongSubject.add(null);
+        } else {
+          if (_currentIndex >= _currentPlaylist.length) {
+            _currentIndex = 0;
+          }
+          await playAtIndex(_currentIndex);
+          await play();
+        }
+      } else if (_currentIndex > index) {
+        _currentIndex--;
+        _currentIndexSubject.add(_currentIndex);
       }
     }
   }
@@ -168,18 +205,53 @@ class AudioPlayerService {
   }
 
   Future<void> seek(Duration position, {int? index}) async {
-    await _player.seek(position, index: index);
+    if (index != null && index != _currentIndex) {
+      await playAtIndex(index);
+    }
+    await _player.seek(position);
   }
 
   Future<void> next() async {
-    if (_player.hasNext) {
-      await _player.seekToNext();
+    if (_currentPlaylist.isEmpty) return;
+    int nextIndex = _currentIndex + 1;
+    if (_player.shuffleModeEnabled) {
+      nextIndex = Random().nextInt(_currentPlaylist.length);
+    }
+    if (nextIndex < _currentPlaylist.length) {
+      try {
+        await playAtIndex(nextIndex);
+        await play();
+      } catch (e) {
+        // Skip current unsupported and advance again
+        await next();
+      }
+    } else if (_player.loopMode == LoopMode.all) {
+      try {
+        await playAtIndex(0);
+        await play();
+      } catch (e) {
+        await next();
+      }
     }
   }
 
   Future<void> previous() async {
-    if (_player.hasPrevious) {
-      await _player.seekToPrevious();
+    if (_currentPlaylist.isEmpty) return;
+    int prevIndex = _currentIndex - 1;
+    if (prevIndex >= 0) {
+      try {
+        await playAtIndex(prevIndex);
+        await play();
+      } catch (e) {
+        await previous();
+      }
+    } else if (_player.loopMode == LoopMode.all) {
+      try {
+        await playAtIndex(_currentPlaylist.length - 1);
+        await play();
+      } catch (e) {
+        await previous();
+      }
     }
   }
 
@@ -211,17 +283,11 @@ class AudioPlayerService {
         (position, bufferedPosition, duration) =>
             PositionData(position, bufferedPosition, duration ?? Duration.zero),
       );
+}
 
-  // Stream getter for active index
-  Stream<int?> get currentIndexStream => _player.currentIndexStream;
-
-  // Stream getter for active song
-  Stream<SongModel?> get currentSongStream =>
-      _player.currentIndexStream.map((index) {
-        if (index == null || index < 0 || index >= _currentPlaylist.length) return null;
-        return _currentPlaylist[index];
-      });
-
-  // Stream getter for playing status
-  Stream<bool> get isPlayingStream => _player.playingStream;
+class FileNotFoundException implements Exception {
+  final String message;
+  FileNotFoundException(this.message);
+  @override
+  String toString() => message;
 }

@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:convert';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:hive/hive.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
@@ -16,6 +17,7 @@ import '../models/playlist_model.dart';
 import '../services/song_service.dart';
 import '../services/storage_service.dart';
 import '../services/audio_player_service.dart';
+import '../services/mood_engine.dart';
 
 class SongProvider extends ChangeNotifier {
   final SongService _songService;
@@ -47,13 +49,30 @@ class SongProvider extends ChangeNotifier {
   // Dynamic Theme accent color
   Color? _dynamicAccentColor;
 
+  bool _isAnalyzing = false;
+  String _analysisStatus = '';
+
+  int _lastSavedPosMs = 0;
+
   SongProvider(this._songService, this._storageService) {
     _notificationsEnabled = _storageService.isNotificationsEnabled();
-    loadInitialData();
+    
+    loadInitialData().then((_) {
+      // Save position periodically (every 5 seconds)
+      _audioService.player.positionStream.listen((pos) {
+        final ms = pos.inMilliseconds;
+        if ((ms - _lastSavedPosMs).abs() >= 5000) {
+          _lastSavedPosMs = ms;
+          _storageService.setLastPosition(ms);
+        }
+      });
+    });
 
     // Listen to current song stream to handle dynamic states
     _audioService.currentSongStream.listen((song) {
       if (song != null) {
+        _storageService.setLastSongId(song.id);
+        _storageService.saveLastQueue(_audioService.currentPlaylist.map((s) => s.id).toList());
         addToRecentlyPlayed(song);
         updateDynamicAccent(song);
       }
@@ -72,6 +91,8 @@ class SongProvider extends ChangeNotifier {
   int? get sleepTimerMinutes => _sleepTimerMinutes;
   bool get sleepEndOfSong => _sleepEndOfSong;
   Color? get dynamicAccentColor => _dynamicAccentColor;
+  bool get isAnalyzing => _isAnalyzing;
+  String get analysisStatus => _analysisStatus;
 
   // Audio Service state accessors
   List<SongModel> get currentPlaylist => _audioService.currentPlaylist;
@@ -208,6 +229,9 @@ class SongProvider extends ChangeNotifier {
       }
     }
 
+    // Try to copy default assets locally and update database references
+    await _copyAssetsToLocal();
+
     _allSongs = _songsBox.values.toList();
     _playlists = _playlistsBox.values.toList();
 
@@ -215,7 +239,204 @@ class SongProvider extends ChangeNotifier {
     _recentlyPlayedIds = _storageService.getRecentlyPlayed();
     _moodHistoryLogs = _storageService.getMoodHistory();
 
+    // Restore previous playback state
+    try {
+      final lastQueueIds = _storageService.getLastQueue();
+      final lastSongId = _storageService.getLastSongId();
+      final lastPosMs = _storageService.getLastPosition();
+
+      if (lastQueueIds.isNotEmpty && lastSongId != null) {
+        final List<SongModel> restoredQueue = [];
+        for (final id in lastQueueIds) {
+          final match = _allSongs.firstWhere((s) => s.id == id, orElse: () => _allSongs.first);
+          if (match.id == id) restoredQueue.add(match);
+        }
+        
+        final initialIndex = restoredQueue.indexWhere((s) => s.id == lastSongId);
+        if (initialIndex != -1) {
+          await _audioService.setPlaylist(restoredQueue, initialIndex);
+          if (lastPosMs > 0) {
+            await _audioService.seek(Duration(milliseconds: lastPosMs));
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("Error restoring last playback state: $e");
+    }
+
+    // Sync smart mixes and run non-blocking background analysis on boot
+    await updateSmartPlaylists();
+    _analyzeAllUnanalyzedSongs();
+
     _isLoading = false;
+    notifyListeners();
+  }
+
+  // Copy assets from bundle to local directory to satisfy local-only file playback
+  Future<void> _copyAssetsToLocal() async {
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+      bool updatedAny = false;
+      
+      for (var song in _songsBox.values) {
+        if (song.localPath.startsWith('assets/')) {
+          final localDest = "${appDir.path}/${song.localPath}";
+          final file = File(localDest);
+          if (!await file.exists()) {
+            try {
+              await file.parent.create(recursive: true);
+              final data = await rootBundle.load(song.localPath);
+              final bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+              await file.writeAsBytes(bytes);
+              
+              final updated = song.copyWith(localPath: localDest);
+              await _songsBox.put(song.id, updated);
+              updatedAny = true;
+            } catch (e) {
+              debugPrint("Asset not packaged: ${song.localPath}");
+            }
+          } else {
+            final updated = song.copyWith(localPath: localDest);
+            await _songsBox.put(song.id, updated);
+            updatedAny = true;
+          }
+        }
+      }
+      
+      if (updatedAny) {
+        _allSongs = _songsBox.values.toList();
+      }
+    } catch (e) {
+      debugPrint("Error copying default assets to local sandbox: $e");
+    }
+  }
+
+  // Sync smart mixes/playlists dynamically in Hive
+  Future<void> updateSmartPlaylists() async {
+    try {
+      final smartMixes = {
+        'Happy Mix': ['happy'],
+        'Workout Mix': ['workout', 'motivation', 'energetic'],
+        'Relax Mix': ['relax', 'calm'],
+        'Travel Mix': ['travel'],
+        'Study Mix': ['study'],
+        'Night Drive': ['party', 'romantic'],
+        'Party Mix': ['party', 'energetic'],
+      };
+
+      for (var entry in smartMixes.entries) {
+        final mixName = entry.key;
+        final allowedMoods = entry.value;
+
+        final matchedIds = _songsBox.values
+            .where((s) => allowedMoods.contains(s.primaryMood.toLowerCase()) || 
+                          allowedMoods.contains(s.secondaryMood.toLowerCase()))
+            .map((s) => s.id)
+            .toList();
+
+        var playlist = _playlistsBox.values.firstWhere(
+          (p) => p.name == mixName,
+          orElse: () => PlaylistModel(
+            id: 'smart_${mixName.replaceAll(" ", "_").toLowerCase()}',
+            name: mixName,
+            songIds: [],
+          ),
+        );
+
+        final updated = playlist.copyWith(songIds: matchedIds);
+        await _playlistsBox.put(playlist.id, updated);
+      }
+
+      // Sync Favorites Smart Mix
+      final favIds = favoriteSongs.map((s) => s.id).toList();
+      var favPlaylist = _playlistsBox.values.firstWhere(
+        (p) => p.name == 'Favorites',
+        orElse: () => PlaylistModel(
+          id: 'smart_favorites',
+          name: 'Favorites',
+          songIds: [],
+        ),
+      );
+      await _playlistsBox.put(favPlaylist.id, favPlaylist.copyWith(songIds: favIds));
+
+      _playlists = _playlistsBox.values.toList();
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Error syncing smart playlists: $e");
+    }
+  }
+
+  // Background Mood Detection analysis task queue
+  Future<void> _analyzeAllUnanalyzedSongs() async {
+    final unanalyzed = _songsBox.values
+        .where((s) => s.analyzedAt.isEmpty || s.analysisVersion != MoodEngine.currentVersion)
+        .toList();
+        
+    if (unanalyzed.isEmpty) return;
+    
+    for (var song in unanalyzed) {
+      await analyzeAndAssignMood(song);
+    }
+  }
+
+  // Analyze single song and save classification
+  Future<void> analyzeAndAssignMood(SongModel song) async {
+    if (song.analyzedAt.isNotEmpty && song.analysisVersion == MoodEngine.currentVersion) {
+      return;
+    }
+
+    _isAnalyzing = true;
+    _analysisStatus = "Analyzing '${song.title}'...";
+    notifyListeners();
+
+    try {
+      final result = await MoodEngine.analyzeSong(song);
+      
+      final updated = song.copyWith(
+        primaryMood: result.primaryMood,
+        secondaryMood: result.secondaryMood,
+        confidence: result.confidence,
+        analysisVersion: MoodEngine.currentVersion,
+        analyzedAt: DateTime.now().toIso8601String(),
+        bitrate: result.bitrate,
+        sampleRate: result.sampleRate,
+        mood: result.primaryMood,
+      );
+
+      await _songsBox.put(song.id, updated);
+      _allSongs = _songsBox.values.toList();
+      
+      await updateSmartPlaylists();
+      
+      _analysisStatus = "Analysis Complete";
+    } catch (e) {
+      debugPrint("Error analyzing song mood: $e");
+      _analysisStatus = "Analysis failed for '${song.title}'";
+    } finally {
+      _isAnalyzing = false;
+      notifyListeners();
+      
+      Future.delayed(const Duration(seconds: 2), () {
+        if (!_isAnalyzing && _analysisStatus == "Analysis Complete") {
+          _analysisStatus = '';
+          notifyListeners();
+        }
+      });
+    }
+  }
+
+  // Manual User Mood Override updater
+  Future<void> overrideSongMood(SongModel song, String newMood) async {
+    final updated = song.copyWith(
+      mood: newMood,
+      primaryMood: newMood,
+      confidence: 1.0,
+      analyzedAt: DateTime.now().toIso8601String(),
+    );
+    await _songsBox.put(song.id, updated);
+    _allSongs = _songsBox.values.toList();
+    
+    await updateSmartPlaylists();
     notifyListeners();
   }
 
@@ -273,6 +494,7 @@ class SongProvider extends ChangeNotifier {
         }
       }
       _allSongs = _songsBox.values.toList();
+      _analyzeAllUnanalyzedSongs();
     } catch (e) {
       debugPrint("Error scanning device audio: $e");
     } finally {
@@ -350,12 +572,14 @@ class SongProvider extends ChangeNotifier {
     await _songsBox.put(song.id, song);
     _allSongs = _songsBox.values.toList();
     notifyListeners();
+    analyzeAndAssignMood(song);
   }
 
   // Long press edits song details
   Future<void> updateSongDetails(SongModel updated) async {
     await _songsBox.put(updated.id, updated);
     _allSongs = _songsBox.values.toList();
+    await updateSmartPlaylists();
     notifyListeners();
   }
 
@@ -418,12 +642,50 @@ class SongProvider extends ChangeNotifier {
     }
   }
 
-  // Plays a song within a given playlist
-  Future<void> playSong(SongModel song, List<SongModel> playlist) async {
-    final index = playlist.indexOf(song);
-    if (index != -1) {
-      await _audioService.setPlaylist(playlist, index);
-      await _audioService.play();
+  // Plays a song within a given playlist with validation
+  Future<bool> playSong(SongModel song, List<SongModel> playlist, {BuildContext? context}) async {
+    // 1. Verify file exists
+    final isAsset = song.localPath.startsWith('assets/');
+    final file = File(song.localPath);
+    final exists = isAsset ? false : await file.exists();
+
+    if (!isAsset && !exists) {
+      // 2. Remove invalid entry
+      await deleteSong(song);
+      
+      // 3. Show proper error message
+      if (context != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("File not found: '${song.title}'. Removed from library."),
+            backgroundColor: Colors.red[800],
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      return false;
+    }
+
+    try {
+      final index = playlist.indexOf(song);
+      if (index != -1) {
+        await _audioService.setPlaylist(playlist, index);
+        await _audioService.play();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint("Error starting playback: $e");
+      if (context != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Error playing audio: ${e.toString()}"),
+            backgroundColor: Colors.red[800],
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      return false;
     }
   }
 
@@ -682,6 +944,13 @@ class SongProvider extends ChangeNotifier {
           playCount: sJson['playCount'] as int,
           lastPlayed: sJson['lastPlayed'] as String,
           dateAdded: sJson['dateAdded'] as String,
+          primaryMood: sJson['primaryMood'] as String?,
+          secondaryMood: sJson['secondaryMood'] as String?,
+          confidence: (sJson['confidence'] as num?)?.toDouble(),
+          analysisVersion: sJson['analysisVersion'] as int?,
+          analyzedAt: sJson['analyzedAt'] as String?,
+          bitrate: sJson['bitrate'] as int?,
+          sampleRate: sJson['sampleRate'] as int?,
         );
         await _songsBox.put(song.id, song);
       }

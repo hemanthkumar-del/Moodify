@@ -93,7 +93,7 @@ class PlaylistDetailsScreen extends StatelessWidget {
                         child: GestureDetector(
                           onTap: () {
                             if (songs.isNotEmpty) {
-                              provider.playSong(songs.first, songs);
+                              provider.playSong(songs.first, songs, context: context);
                             }
                           },
                           child: GlassCard(
@@ -119,7 +119,7 @@ class PlaylistDetailsScreen extends StatelessWidget {
                             if (songs.isNotEmpty) {
                               // Enable shuffle mode and play
                               provider.toggleShuffle();
-                              provider.playSong(songs[0], songs);
+                              provider.playSong(songs[0], songs, context: context);
                             }
                           },
                           child: GlassCard(

@@ -365,15 +365,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
                       child: GestureDetector(
-                        onTap: () {
+                        onTap: () async {
                           final rand = provider.getRandomSong();
                           if (rand != null) {
-                            provider.playSong(rand, provider.allSongs);
-                            Navigator.of(context).push(
-                              FadeScalePageRoute(
-                                page: SongDetailsScreen(song: rand),
-                              ),
-                            );
+                            final success = await provider.playSong(rand, provider.allSongs, context: context);
+                            if (success && context.mounted) {
+                              Navigator.of(context).push(
+                                FadeScalePageRoute(
+                                  page: SongDetailsScreen(song: rand),
+                                ),
+                              );
+                            }
                           }
                         },
                         child: GlassCard(
@@ -417,13 +419,15 @@ class _HomeScreenState extends State<HomeScreen> {
                               itemBuilder: (context, index) {
                                 final rSong = provider.recentlyPlayedSongs[index];
                                 return GestureDetector(
-                                  onTap: () {
-                                    provider.playSong(rSong, provider.recentlyPlayedSongs);
-                                    Navigator.of(context).push(
-                                      FadeScalePageRoute(
-                                        page: SongDetailsScreen(song: rSong),
-                                      ),
-                                    );
+                                  onTap: () async {
+                                    final success = await provider.playSong(rSong, provider.recentlyPlayedSongs, context: context);
+                                    if (success && context.mounted) {
+                                      Navigator.of(context).push(
+                                        FadeScalePageRoute(
+                                          page: SongDetailsScreen(song: rSong),
+                                        ),
+                                      );
+                                    }
                                   },
                                   child: Container(
                                     width: 100,

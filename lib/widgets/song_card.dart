@@ -27,14 +27,15 @@ class SongCard extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     Widget card = GestureDetector(
-      onTap: () {
-        provider.playSong(song, playlist ?? [song]);
-        
-        Navigator.of(context).push(
-          FadeScalePageRoute(
-            page: SongDetailsScreen(song: song),
-          ),
-        );
+      onTap: () async {
+        final success = await provider.playSong(song, playlist ?? [song], context: context);
+        if (success && context.mounted) {
+          Navigator.of(context).push(
+            FadeScalePageRoute(
+              page: SongDetailsScreen(song: song),
+            ),
+          );
+        }
       },
       child: GlassCard(
         margin: const EdgeInsets.only(bottom: 16.0),

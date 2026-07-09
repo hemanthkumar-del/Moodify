@@ -44,6 +44,48 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (provider.analysisStatus.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 4.0),
+                child: GlassCard(
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                  borderRadius: 16,
+                  color: (provider.isAnalyzing ? Colors.blue : Colors.green).withValues(alpha: 0.1),
+                  borderColor: (provider.isAnalyzing ? Colors.blue : Colors.green).withValues(alpha: 0.35),
+                  child: Row(
+                    children: [
+                      if (provider.isAnalyzing)
+                        const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                          ),
+                        )
+                      else
+                        Icon(
+                          provider.analysisStatus.contains('failed') ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
+                          color: provider.analysisStatus.contains('failed') ? Colors.red : Colors.green,
+                          size: 16,
+                        ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          provider.analysisStatus,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: provider.isAnalyzing
+                                ? Colors.blue
+                                : (provider.analysisStatus.contains('failed') ? Colors.red : Colors.green),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
               child: MiniPlayer(),
