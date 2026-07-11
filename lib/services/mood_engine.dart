@@ -237,10 +237,21 @@ class MoodEngine {
     final double rawConf = scores[primary]! / (scores[primary]! + scores[secondary]!);
     final double confidence = (rawConf.isNaN || rawConf.isInfinite) ? 0.75 : rawConf.clamp(0.40, 0.99);
 
+    String finalPrimary = primary;
+    String finalSecondary = secondary;
+    double finalConfidence = confidence;
+
+    // If no strong metadata or audio signals matched (score remains close to baseline)
+    if (scores[primary]! < 0.28) {
+      finalPrimary = "Unknown";
+      finalSecondary = "Unknown";
+      finalConfidence = 0.0;
+    }
+
     return MoodAnalysisResult(
-      primaryMood: primary,
-      secondaryMood: secondary,
-      confidence: confidence,
+      primaryMood: finalPrimary,
+      secondaryMood: finalSecondary,
+      confidence: finalConfidence,
       tempo: tempo,
       energy: energy,
       loudness: loudness,

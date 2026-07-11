@@ -81,7 +81,7 @@ class _SplashScreenState extends State<SplashScreen> {
             
             // Title
             Text(
-              "MoodTunes AI",
+              "Moodify",
               style: TextStyle(
                 fontSize: 36,
                 fontWeight: FontWeight.bold,
@@ -104,7 +104,7 @@ class _SplashScreenState extends State<SplashScreen> {
             
             // Subtitle
             Text(
-              "Your mood. Your music.",
+              "Music that matches your mood.",
               style: TextStyle(
                 fontSize: 16,
                 color: Colors.white.withValues(alpha: 0.5),

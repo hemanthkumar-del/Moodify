@@ -138,7 +138,7 @@ class WelcomeScreen extends StatelessWidget {
               children: [
                 // Title
                 Text(
-                  "MoodTunes AI",
+                  "Moodify",
                   style: TextStyle(
                     fontSize: 40,
                     fontWeight: FontWeight.w900,
@@ -154,7 +154,7 @@ class WelcomeScreen extends StatelessWidget {
                 
                 // Subtitle
                 Text(
-                  "Your mood. Your music.",
+                  "Music that matches your mood.",
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 18,

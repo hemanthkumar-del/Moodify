@@ -30,10 +30,32 @@ class AudioPlayerService {
 
   // Constructor
   AudioPlayerService._internal() {
+    // Listen to active index changes to sync local subjects
+    _player.currentIndexStream.listen((index) {
+      if (index != null && index >= 0 && index < _currentPlaylist.length) {
+        _currentIndex = index;
+        _currentIndexSubject.add(_currentIndex);
+        _currentSongSubject.add(_currentPlaylist[_currentIndex]);
+      }
+    });
+
     // Listen to player completion to advance queue automatically
-    _player.processingStateStream.listen((state) {
+    _player.processingStateStream.listen((state) async {
       if (state == ProcessingState.completed) {
-        next();
+        final isShuffle = _player.shuffleModeEnabled;
+        final isLoopAll = _player.loopMode == LoopMode.all;
+        final isLoopOne = _player.loopMode == LoopMode.one;
+
+        if (isLoopOne) {
+          await seek(Duration.zero);
+          await play();
+        } else if ((isShuffle && _currentPlaylist.length > 1) || isLoopAll || (_currentIndex + 1 < _currentPlaylist.length)) {
+          await next();
+        } else {
+          // Reset when last song in the queue completes
+          await stop();
+          await seek(Duration.zero);
+        }
       }
     });
   }
@@ -55,7 +77,7 @@ class AudioPlayerService {
     try {
       await JustAudioBackground.init(
         androidNotificationChannelId: 'com.moodtunes.pro.channel.audio',
-        androidNotificationChannelName: 'MoodTunes Pro Playback',
+        androidNotificationChannelName: 'Moodify Playback',
         androidNotificationOngoing: true,
         androidNotificationIcon: 'mipmap/ic_launcher',
         androidShowNotificationBadge: true,
@@ -64,20 +86,31 @@ class AudioPlayerService {
       final session = await AudioSession.instance;
       await session.configure(const AudioSessionConfiguration.music());
 
-      // Audio focus handling (pause when interrupted)
+      // Audio focus handling (pause when interrupted, resume when gained back)
+      bool shouldResumeOnFocusGain = false;
+
       session.interruptionEventStream.listen((event) {
         if (event.begin) {
           switch (event.type) {
             case AudioInterruptionType.pause:
             case AudioInterruptionType.duck:
-              _instance.pause();
-              break;
-            default:
+            case AudioInterruptionType.unknown:
+              if (_instance.player.playing) {
+                shouldResumeOnFocusGain = true;
+                _instance.pause();
+              }
               break;
           }
         } else {
-          if (event.type == AudioInterruptionType.duck) {
-            _instance.play();
+          switch (event.type) {
+            case AudioInterruptionType.pause:
+            case AudioInterruptionType.duck:
+            case AudioInterruptionType.unknown:
+              if (shouldResumeOnFocusGain) {
+                shouldResumeOnFocusGain = false;
+                _instance.play();
+              }
+              break;
           }
         }
       });
@@ -96,53 +129,57 @@ class AudioPlayerService {
   Future<void> setPlaylist(List<SongModel> songs, int initialIndex) async {
     if (songs.isEmpty) return;
     _currentPlaylist = List<SongModel>.from(songs);
-    await playAtIndex(initialIndex);
+
+    final audioSources = _currentPlaylist.map((song) {
+      final artUri = song.coverPath.startsWith('assets/')
+          ? Uri.parse("asset:///${song.coverPath}")
+          : (song.coverPath.isNotEmpty ? Uri.file(song.coverPath) : null);
+
+      final tag = MediaItem(
+        id: song.id,
+        album: song.album,
+        title: song.title,
+        artist: song.artist,
+        artUri: artUri,
+      );
+
+      if (song.localPath.startsWith('assets/')) {
+        return AudioSource.asset(song.localPath, tag: tag);
+      } else {
+        return AudioSource.file(song.localPath, tag: tag);
+      }
+    }).toList();
+
+    try {
+      final playlistSource = ConcatenatingAudioSource(children: audioSources);
+      await _player.setAudioSource(playlistSource, initialIndex: initialIndex);
+      
+      _currentIndex = initialIndex;
+      _currentIndexSubject.add(_currentIndex);
+      _currentSongSubject.add(_currentPlaylist[_currentIndex]);
+    } catch (e) {
+      debugPrint("Error setting concatenating audio source: $e");
+      await playAtIndex(initialIndex);
+    }
   }
 
-  // Play target index using setFilePath
+  // Play target index
   Future<void> playAtIndex(int index) async {
     if (index < 0 || index >= _currentPlaylist.length) return;
-    _currentIndex = index;
     final song = _currentPlaylist[index];
 
     // File validation check
     if (!song.localPath.startsWith('assets/')) {
       final file = File(song.localPath);
       if (!await file.exists()) {
-        // Broadcast error and remove from index state
         _currentIndexSubject.add(null);
         _currentSongSubject.add(null);
         throw FileNotFoundException("File not found: ${song.localPath}");
       }
     }
 
-    final artUri = song.coverPath.startsWith('assets/')
-        ? Uri.parse("asset:///${song.coverPath}")
-        : (song.coverPath.isNotEmpty ? Uri.file(song.coverPath) : null);
-
-    try {
-      // Load file using setFilePath
-      await _player.setFilePath(
-        song.localPath,
-        tag: MediaItem(
-          id: song.id,
-          album: song.album,
-          title: song.title,
-          artist: song.artist,
-          artUri: artUri,
-        ),
-      );
-      
-      // Update subjects to trigger stream listeners
-      _currentIndexSubject.add(_currentIndex);
-      _currentSongSubject.add(song);
-    } catch (e) {
-      debugPrint("Error loading file path in player: $e");
-      // Broadcast null state and skip gracefully if in playlist
-      _currentIndexSubject.add(null);
-      _currentSongSubject.add(null);
-      throw Exception("Codec / Audio format not supported: $e");
-    }
+    _currentIndex = index;
+    await _player.seek(Duration.zero, index: index);
   }
 
   // Queue manipulation
@@ -212,46 +249,18 @@ class AudioPlayerService {
   }
 
   Future<void> next() async {
-    if (_currentPlaylist.isEmpty) return;
-    int nextIndex = _currentIndex + 1;
-    if (_player.shuffleModeEnabled) {
-      nextIndex = Random().nextInt(_currentPlaylist.length);
-    }
-    if (nextIndex < _currentPlaylist.length) {
-      try {
-        await playAtIndex(nextIndex);
-        await play();
-      } catch (e) {
-        // Skip current unsupported and advance again
-        await next();
-      }
-    } else if (_player.loopMode == LoopMode.all) {
-      try {
-        await playAtIndex(0);
-        await play();
-      } catch (e) {
-        await next();
-      }
+    if (_player.hasNext) {
+      await _player.seekToNext();
+    } else if (_player.loopMode == LoopMode.all && _currentPlaylist.isNotEmpty) {
+      await _player.seek(Duration.zero, index: 0);
     }
   }
 
   Future<void> previous() async {
-    if (_currentPlaylist.isEmpty) return;
-    int prevIndex = _currentIndex - 1;
-    if (prevIndex >= 0) {
-      try {
-        await playAtIndex(prevIndex);
-        await play();
-      } catch (e) {
-        await previous();
-      }
-    } else if (_player.loopMode == LoopMode.all) {
-      try {
-        await playAtIndex(_currentPlaylist.length - 1);
-        await play();
-      } catch (e) {
-        await previous();
-      }
+    if (_player.hasPrevious) {
+      await _player.seekToPrevious();
+    } else if (_player.loopMode == LoopMode.all && _currentPlaylist.isNotEmpty) {
+      await _player.seek(Duration.zero, index: _currentPlaylist.length - 1);
     }
   }
 

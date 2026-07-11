@@ -226,7 +226,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
 
         Expanded(
           child: songs.isEmpty
-              ? _buildEmptyState("No songs in your library. Add individual audio tracks or scan storage to begin.")
+              ? _buildEmptyState("No music found. Import songs to start your Moodify journey.")
               : (_isGridView
                   ? GridView.builder(
                       physics: const BouncingScrollPhysics(),
@@ -314,9 +314,11 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                               color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: Icon(
-                              Icons.my_library_music_rounded,
-                              color: isDark ? Colors.white70 : Colors.black87,
+                            child: Center(
+                              child: Text(
+                                playlist.emoji,
+                                style: const TextStyle(fontSize: 22),
+                              ),
                             ),
                           ),
                           title: Text(
@@ -786,33 +788,75 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
 
   // Create playlist dialog
   void _showCreatePlaylistDialog(BuildContext context, SongProvider provider) {
-    final controller = TextEditingController();
+    final nameController = TextEditingController();
+    final emojiController = TextEditingController(text: "🎵");
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: const Text("New Playlist"),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(hintText: "Playlist name"),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text("Cancel"),
-            ),
-            TextButton(
-              onPressed: () {
-                final name = controller.text.trim();
-                if (name.isNotEmpty) {
-                  provider.createPlaylist(name);
-                }
-                Navigator.of(context).pop();
-              },
-              child: const Text("Create"),
-            ),
-          ],
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text("New Playlist"),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: emojiController,
+                    maxLength: 2,
+                    decoration: const InputDecoration(
+                      labelText: "Playlist Emoji",
+                      hintText: "🎵",
+                    ),
+                    onChanged: (val) => setDialogState(() {}),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: ["🔥", "❤️", "🚗", "😴", "🎧", "🎵"].map((em) {
+                      final isSelected = emojiController.text == em;
+                      return ChoiceChip(
+                        label: Text(em, style: const TextStyle(fontSize: 16)),
+                        selected: isSelected,
+                        onSelected: (val) {
+                          if (val) {
+                            emojiController.text = em;
+                            setDialogState(() {});
+                          }
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: nameController,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: "Playlist name",
+                      labelText: "Name",
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text("Cancel"),
+                ),
+                TextButton(
+                  onPressed: () {
+                    final name = nameController.text.trim();
+                    final emoji = emojiController.text.trim().isEmpty ? "🎵" : emojiController.text.trim();
+                    if (name.isNotEmpty) {
+                      provider.createPlaylist(name, emoji: emoji);
+                    }
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text("Create"),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -858,33 +902,75 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
   }
 
   void _showRenamePlaylistDialog(BuildContext context, SongProvider provider, PlaylistModel playlist) {
-    final controller = TextEditingController(text: playlist.name);
+    final nameController = TextEditingController(text: playlist.name);
+    final emojiController = TextEditingController(text: playlist.emoji);
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: const Text("Rename Playlist"),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(hintText: "New playlist name"),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text("Cancel"),
-            ),
-            TextButton(
-              onPressed: () {
-                final name = controller.text.trim();
-                if (name.isNotEmpty) {
-                  provider.renamePlaylist(playlist.id, name);
-                }
-                Navigator.of(context).pop();
-              },
-              child: const Text("Rename"),
-            ),
-          ],
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text("Edit Playlist"),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: emojiController,
+                    maxLength: 2,
+                    decoration: const InputDecoration(
+                      labelText: "Playlist Emoji",
+                      hintText: "🎵",
+                    ),
+                    onChanged: (val) => setDialogState(() {}),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: ["🔥", "❤️", "🚗", "😴", "🎧", "🎵"].map((em) {
+                      final isSelected = emojiController.text == em;
+                      return ChoiceChip(
+                        label: Text(em, style: const TextStyle(fontSize: 16)),
+                        selected: isSelected,
+                        onSelected: (val) {
+                          if (val) {
+                            emojiController.text = em;
+                            setDialogState(() {});
+                          }
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: nameController,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: "Playlist name",
+                      labelText: "Name",
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text("Cancel"),
+                ),
+                TextButton(
+                  onPressed: () {
+                    final name = nameController.text.trim();
+                    final emoji = emojiController.text.trim().isEmpty ? "🎵" : emojiController.text.trim();
+                    if (name.isNotEmpty) {
+                      provider.renamePlaylist(playlist.id, name, emoji: emoji);
+                    }
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text("Save"),
+                ),
+              ],
+            );
+          },
         );
       },
     );

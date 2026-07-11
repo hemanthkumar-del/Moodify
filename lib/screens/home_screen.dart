@@ -27,19 +27,20 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isSearching = false;
   late String _dailyQuote;
 
-  final List<String> _quotesList = [
-    "Where words fail, music speaks. — Hans Christian Andersen",
-    "Music can change the world because it can change people. — Bono",
-    "One good thing about music, when it hits you, you feel no pain. — Bob Marley",
-    "Music is the shorthand of emotion. — Leo Tolstoy",
-    "Life is one grand sweet song, so start the music. — Ronald Reagan",
-    "Music is a moral law. It gives soul to the universe, wings to the mind. — Plato",
-  ];
+  final Map<int, String> _dailyQuotes = {
+    DateTime.monday: "Small progress is still progress. Keep moving forward.",
+    DateTime.tuesday: "Music heals more than silence. Let your mind drift.",
+    DateTime.wednesday: "Your only limit is you. Break through your boundaries.",
+    DateTime.thursday: "Keep going, you are doing great. Believe in yourself.",
+    DateTime.friday: "Focus on the step in front of you, not the whole staircase.",
+    DateTime.saturday: "Take time to recharge and reflect. Peace starts within.",
+    DateTime.sunday: "A new day is a fresh start. Clear your thoughts and rebuild.",
+  };
 
   @override
   void initState() {
     super.initState();
-    _dailyQuote = _quotesList[DateTime.now().day % _quotesList.length];
+    _dailyQuote = _dailyQuotes[DateTime.now().weekday] ?? _dailyQuotes[DateTime.monday]!;
     _searchController.addListener(_onSearchChanged);
   }
 
@@ -137,7 +138,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              "MoodTunes Pro",
+                              "Moodify",
                               style: TextStyle(
                                 fontSize: 26,
                                 fontWeight: FontWeight.bold,

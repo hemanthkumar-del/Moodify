@@ -4,22 +4,26 @@ class PlaylistModel {
   final String id;
   final String name;
   final List<String> songIds;
+  final String emoji;
 
   PlaylistModel({
     required this.id,
     required this.name,
     required this.songIds,
+    this.emoji = '🎵',
   });
 
   PlaylistModel copyWith({
     String? id,
     String? name,
     List<String>? songIds,
+    String? emoji,
   }) {
     return PlaylistModel(
       id: id ?? this.id,
       name: name ?? this.name,
       songIds: songIds ?? this.songIds,
+      emoji: emoji ?? this.emoji,
     );
   }
 }
@@ -30,10 +34,21 @@ class PlaylistModelAdapter extends TypeAdapter<PlaylistModel> {
 
   @override
   PlaylistModel read(BinaryReader reader) {
+    final id = reader.readString();
+    final name = reader.readString();
+    final songIds = reader.readStringList();
+    
+    // Support database schema evolution for existing custom playlists
+    String emoji = '🎵';
+    try {
+      emoji = reader.readString();
+    } catch (_) {}
+
     return PlaylistModel(
-      id: reader.readString(),
-      name: reader.readString(),
-      songIds: reader.readStringList(),
+      id: id,
+      name: name,
+      songIds: songIds,
+      emoji: emoji,
     );
   }
 
@@ -42,5 +57,6 @@ class PlaylistModelAdapter extends TypeAdapter<PlaylistModel> {
     writer.writeString(obj.id);
     writer.writeString(obj.name);
     writer.writeStringList(obj.songIds);
+    writer.writeString(obj.emoji);
   }
 }

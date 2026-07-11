@@ -332,21 +332,31 @@ class _SongDetailsScreenState extends State<SongDetailsScreen> with SingleTicker
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: primaryAccent.withValues(alpha: 0.15),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: primaryAccent.withValues(alpha: 0.3), width: 1.0),
-                                  ),
-                                  child: Text(
-                                    song.analyzedAt.isEmpty
-                                        ? "${song.mood} Vibe"
-                                        : "${song.primaryMood} (${(song.confidence * 100).round()}%) • ${song.secondaryMood}",
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: primaryAccent,
+                                GestureDetector(
+                                  onTap: () => _showEditMoodDialog(context, provider, song),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: primaryAccent.withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: primaryAccent.withValues(alpha: 0.3), width: 1.0),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          song.analyzedAt.isEmpty
+                                              ? "${song.mood} Vibe"
+                                              : "${song.primaryMood} (${(song.confidence * 100).round()}%) • ${song.secondaryMood}",
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: primaryAccent,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Icon(Icons.edit_rounded, size: 12, color: primaryAccent),
+                                      ],
                                     ),
                                   ),
                                 ),
@@ -850,6 +860,62 @@ class _SongDetailsScreenState extends State<SongDetailsScreen> with SingleTicker
                   ),
                 ],
               ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showEditMoodDialog(BuildContext context, SongProvider provider, SongModel song) {
+    final moods = [
+      "Happy", "Sad", "Relax", "Workout", "Romantic", "Party", 
+      "Study", "Travel", "Sleep", "Motivation", "Calm", "Energetic", "Unknown"
+    ];
+    String selected = song.mood;
+    if (!moods.contains(selected)) {
+      selected = "Unknown";
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text("Edit Mood Vibe"),
+              content: DropdownButtonFormField<String>(
+                initialValue: selected,
+                items: moods.map((m) {
+                  return DropdownMenuItem<String>(
+                    value: m,
+                    child: Text(m),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    setDialogState(() {
+                      selected = val;
+                    });
+                  }
+                },
+                decoration: const InputDecoration(
+                  labelText: "Select Mood",
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text("Cancel"),
+                ),
+                TextButton(
+                  onPressed: () {
+                    provider.overrideSongMood(song, selected);
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text("Save"),
+                ),
+              ],
             );
           },
         );

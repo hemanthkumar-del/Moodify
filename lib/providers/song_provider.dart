@@ -53,6 +53,8 @@ class SongProvider extends ChangeNotifier {
   String _analysisStatus = '';
 
   int _lastSavedPosMs = 0;
+  Timer? _listeningTimer;
+  int _totalListeningTimeSec = 0;
 
   SongProvider(this._songService, this._storageService) {
     _notificationsEnabled = _storageService.isNotificationsEnabled();
@@ -64,6 +66,15 @@ class SongProvider extends ChangeNotifier {
         if ((ms - _lastSavedPosMs).abs() >= 5000) {
           _lastSavedPosMs = ms;
           _storageService.setLastPosition(ms);
+        }
+      });
+
+      // Start accurate 1-second listening statistics timer
+      _listeningTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (_audioService.player.playing && _audioService.player.processingState == ProcessingState.ready) {
+          _totalListeningTimeSec++;
+          _storageService.saveTotalListeningSeconds(_totalListeningTimeSec);
+          notifyListeners();
         }
       });
     });
@@ -141,20 +152,7 @@ class SongProvider extends ChangeNotifier {
   }
 
   // Statistics Computations
-  int get totalListeningTimeSec {
-    int totalSec = 0;
-    for (var song in _allSongs) {
-      if (song.playCount > 0) {
-        final parts = song.duration.split(':');
-        if (parts.length == 2) {
-          final m = int.tryParse(parts[0]) ?? 0;
-          final s = int.tryParse(parts[1]) ?? 0;
-          totalSec += (m * 60 + s) * song.playCount;
-        }
-      }
-    }
-    return totalSec;
-  }
+  int get totalListeningTimeSec => _totalListeningTimeSec;
 
   String get favoriteGenre {
     if (_allSongs.isEmpty) return 'None';
@@ -221,13 +219,7 @@ class SongProvider extends ChangeNotifier {
     _songsBox = await Hive.openBox<SongModel>('songs');
     _playlistsBox = await Hive.openBox<PlaylistModel>('playlists');
 
-    // Seeding sample tracks from songs.json if box is empty
-    if (_songsBox.isEmpty) {
-      final legacySongs = await _songService.loadSongs();
-      for (final song in legacySongs) {
-        await _songsBox.put(song.id, song);
-      }
-    }
+    // Demo/sample seeding removed in v1.2.0 rebrand
 
     // Try to copy default assets locally and update database references
     await _copyAssetsToLocal();
@@ -267,6 +259,8 @@ class SongProvider extends ChangeNotifier {
     // Sync smart mixes and run non-blocking background analysis on boot
     await updateSmartPlaylists();
     _analyzeAllUnanalyzedSongs();
+
+    _totalListeningTimeSec = _storageService.getTotalListeningSeconds();
 
     _isLoading = false;
     notifyListeners();
@@ -411,13 +405,24 @@ class SongProvider extends ChangeNotifier {
       _analysisStatus = "Analysis Complete";
     } catch (e) {
       debugPrint("Error analyzing song mood: $e");
-      _analysisStatus = "Analysis failed for '${song.title}'";
+      final updated = song.copyWith(
+        primaryMood: "Unknown",
+        secondaryMood: "Unknown",
+        confidence: 0.0,
+        analysisVersion: MoodEngine.currentVersion,
+        analyzedAt: DateTime.now().toIso8601String(),
+        mood: "Unknown",
+      );
+      await _songsBox.put(song.id, updated);
+      _allSongs = _songsBox.values.toList();
+      await updateSmartPlaylists();
+      _analysisStatus = "Mood unavailable";
     } finally {
       _isAnalyzing = false;
       notifyListeners();
       
       Future.delayed(const Duration(seconds: 2), () {
-        if (!_isAnalyzing && _analysisStatus == "Analysis Complete") {
+        if (!_isAnalyzing && (_analysisStatus == "Analysis Complete" || _analysisStatus == "Mood unavailable")) {
           _analysisStatus = '';
           notifyListeners();
         }
@@ -445,6 +450,7 @@ class SongProvider extends ChangeNotifier {
     Map<Permission, PermissionStatus> statuses = await [
       Permission.storage,
       Permission.audio,
+      Permission.notification,
     ].request();
     
     return statuses[Permission.audio] == PermissionStatus.granted ||
@@ -591,11 +597,12 @@ class SongProvider extends ChangeNotifier {
   }
 
   // User Playlist CRUD Operations
-  Future<void> createPlaylist(String name) async {
+  Future<void> createPlaylist(String name, {String emoji = '🎵'}) async {
     final playlist = PlaylistModel(
       id: 'playlist_${DateTime.now().millisecondsSinceEpoch}',
       name: name,
       songIds: [],
+      emoji: emoji,
     );
     await _playlistsBox.put(playlist.id, playlist);
     _playlists = _playlistsBox.values.toList();
@@ -608,13 +615,37 @@ class SongProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> renamePlaylist(String playlistId, String newName) async {
+  Future<void> renamePlaylist(String playlistId, String newName, {String? emoji}) async {
     final old = _playlistsBox.get(playlistId);
     if (old != null) {
-      final updated = old.copyWith(name: newName);
+      final updated = old.copyWith(
+        name: newName,
+        emoji: emoji ?? old.emoji,
+      );
       await _playlistsBox.put(playlistId, updated);
       _playlists = _playlistsBox.values.toList();
       notifyListeners();
+    }
+  }
+
+  Future<void> reorderSongsInPlaylist(String playlistId, int oldIndex, int newIndex) async {
+    final old = _playlistsBox.get(playlistId);
+    if (old != null) {
+      final updatedIds = List<String>.from(old.songIds);
+      if (oldIndex >= 0 && newIndex >= 0 && oldIndex < updatedIds.length && newIndex <= updatedIds.length) {
+        // Adjust index for items moved down the list
+        var targetIndex = newIndex;
+        if (oldIndex < newIndex) {
+          targetIndex -= 1;
+        }
+        final item = updatedIds.removeAt(oldIndex);
+        updatedIds.insert(targetIndex, item);
+        
+        final updated = old.copyWith(songIds: updatedIds);
+        await _playlistsBox.put(playlistId, updated);
+        _playlists = _playlistsBox.values.toList();
+        notifyListeners();
+      }
     }
   }
 
@@ -983,5 +1014,11 @@ class SongProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint("Could not launch $urlString: $e");
     }
+  }
+
+  @override
+  void dispose() {
+    _listeningTimer?.cancel();
+    super.dispose();
   }
 }

@@ -98,4 +98,15 @@ class StorageService {
   Future<void> saveLastQueue(List<String> queue) async {
     await _prefs?.setStringList(_keyLastQueue, queue);
   }
+
+  // Listening time statistics helpers
+  static const String _keyListeningTime = 'total_listening_seconds_v1';
+
+  int getTotalListeningSeconds() {
+    return _prefs?.getInt(_keyListeningTime) ?? 0;
+  }
+
+  Future<void> saveTotalListeningSeconds(int value) async {
+    await _prefs?.setInt(_keyListeningTime, value);
+  }
 }

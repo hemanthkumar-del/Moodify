@@ -146,10 +146,13 @@ class PlaylistDetailsScreen extends StatelessWidget {
                 Expanded(
                   child: songs.isEmpty
                       ? _buildEmptyState()
-                      : ListView.builder(
+                      : ReorderableListView.builder(
                           physics: const BouncingScrollPhysics(),
                           padding: const EdgeInsets.fromLTRB(24, 12, 24, 80),
                           itemCount: songs.length,
+                          onReorder: (oldIndex, newIndex) {
+                            provider.reorderSongsInPlaylist(livePlaylist.id, oldIndex, newIndex);
+                          },
                           itemBuilder: (context, index) {
                             final song = songs[index];
                             return Dismissible(

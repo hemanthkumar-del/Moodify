@@ -304,7 +304,7 @@ class SettingsScreen extends StatelessWidget {
                     const SizedBox(height: 28),
 
                     // SECTION 4: ABOUT PRO
-                    _buildSectionTitle("About MoodTunes Pro", isDark),
+                    _buildSectionTitle("About Moodify", isDark),
                     GlassCard(
                       padding: const EdgeInsets.all(16.0),
                       borderRadius: 24,
@@ -318,8 +318,8 @@ class SettingsScreen extends StatelessWidget {
                               const Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text("MoodTunes Pro", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                  Text("Version 2.0.0 (Build 200)", style: TextStyle(color: Colors.grey, fontSize: 11)),
+                                  Text("Moodify", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                  Text("Version 1.2.0 (Build 120)", style: TextStyle(color: Colors.grey, fontSize: 11)),
                                 ],
                               ),
                             ],
@@ -343,8 +343,8 @@ class SettingsScreen extends StatelessWidget {
                                 onPressed: () {
                                   showLicensePage(
                                     context: context,
-                                    applicationName: "MoodTunes Pro",
-                                    applicationVersion: "2.0.0",
+                                    applicationName: "Moodify",
+                                    applicationVersion: "1.2.0",
                                     applicationIcon: Icon(Icons.album_rounded, size: 48, color: themeProvider.primaryAccent),
                                   );
                                 },

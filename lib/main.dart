@@ -46,7 +46,7 @@ class MyApp extends StatelessWidget {
     final themeProvider = Provider.of<ThemeProvider>(context);
 
     return MaterialApp(
-      title: 'MoodTunes Pro',
+      title: 'Moodify',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.buildTheme(Brightness.light, themeProvider.primaryAccent),
       darkTheme: AppTheme.buildTheme(Brightness.dark, themeProvider.primaryAccent),

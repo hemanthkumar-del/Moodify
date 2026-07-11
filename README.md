@@ -1,11 +1,15 @@
-# MoodTunes Pro
+# Moodify
 
-Premium Offline Music Player built with Flutter. Designed for seamless offline playback, mood tracking, and database synchronization.
+Premium Offline Music Player built with Flutter. Design matching your emotions, offering offline playback, smart mood tracking, and database synchronization.
+
+## Tagline
+
+> "Music that matches your mood."
 
 ## Features
 
 • **Offline Music Player**: Premium playback features including seek bar, shuffle, repeat, play queue, and dynamic waveforms.
-• **Mood-Based Playlists**: Automatically groups your track library by distinct moods (Happy, Sad, Relax, Workout, Study, Sleep, Romantic, Lonely).
+• **Mood-Based Playlists**: Automatically groups your track library by distinct moods (Happy, Sad, Relax, Workout, Study, Sleep, Romantic, Lonely, Motivation, Calm, Energetic).
 • **Local Music Import**: Copy selected files into application secure local storage from any phone directory.
 • **Device Music Scanner**: Auto-scan device directory storage using localized metadata extractors.
 • **Background Playback**: Continuous media streaming with notification and lock screen controls.
@@ -46,7 +50,7 @@ lib/
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/hemanthkodi6/MoodTunes-Pro.git
+   git clone https://github.com/hemanthkumar-del/MoodTunes-Pro.git
    ```
 2. Navigate to the project directory:
    ```bash
@@ -68,7 +72,7 @@ lib/
 ## APK Download
 
 The compiled production release bundle is available inside the GitHub Releases tab:
-👉 **[Download APK v1.0.0](https://github.com/hemanthkodi6/MoodTunes-Pro/releases/download/v1.0.0/app-release.apk)**
+👉 **[Download APK v1.2.0](https://github.com/hemanthkumar-del/MoodTunes-Pro/releases/download/v1.2.0/app-release.apk)**
 
 ## Future Improvements
 
