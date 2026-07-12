@@ -220,6 +220,15 @@ class SongProvider extends ChangeNotifier {
     _playlistsBox = await Hive.openBox<PlaylistModel>('playlists');
 
     // Demo/sample seeding removed in v1.2.0 rebrand
+    final demoKeys = _songsBox.keys.where((key) {
+      final song = _songsBox.get(key);
+      return key.toString().startsWith('song_') || (song?.localPath.startsWith('assets/') ?? false);
+    }).toList();
+    if (demoKeys.isNotEmpty) {
+      for (final key in demoKeys) {
+        await _songsBox.delete(key);
+      }
+    }
 
     // Try to copy default assets locally and update database references
     await _copyAssetsToLocal();

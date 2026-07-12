@@ -7,16 +7,7 @@ import 'package:audio_session/audio_session.dart';
 import 'package:rxdart/rxdart.dart';
 import '../models/song_model.dart';
 
-class PositionData {
-  final Duration position;
-  final Duration bufferedPosition;
-  final Duration duration;
-
-  PositionData(this.position, this.bufferedPosition, this.duration);
-}
-
 class AudioPlayerService {
-  // Singleton instance
   static final AudioPlayerService _instance = AudioPlayerService._internal();
   factory AudioPlayerService() => _instance;
 
@@ -30,15 +21,6 @@ class AudioPlayerService {
 
   // Constructor
   AudioPlayerService._internal() {
-    // Listen to active index changes to sync local subjects
-    _player.currentIndexStream.listen((index) {
-      if (index != null && index >= 0 && index < _currentPlaylist.length) {
-        _currentIndex = index;
-        _currentIndexSubject.add(_currentIndex);
-        _currentSongSubject.add(_currentPlaylist[_currentIndex]);
-      }
-    });
-
     // Listen to player completion to advance queue automatically
     _player.processingStateStream.listen((state) async {
       if (state == ProcessingState.completed) {
@@ -49,10 +31,14 @@ class AudioPlayerService {
         if (isLoopOne) {
           await seek(Duration.zero);
           await play();
-        } else if ((isShuffle && _currentPlaylist.length > 1) || isLoopAll || (_currentIndex + 1 < _currentPlaylist.length)) {
+        } else if (isShuffle && _currentPlaylist.isNotEmpty) {
+          await next();
+        } else if (_currentIndex + 1 < _currentPlaylist.length) {
+          await next();
+        } else if (isLoopAll && _currentPlaylist.isNotEmpty) {
           await next();
         } else {
-          // Reset when last song in the queue completes
+          // End of queue reached: stop and reset position
           await stop();
           await seek(Duration.zero);
         }
@@ -129,43 +115,13 @@ class AudioPlayerService {
   Future<void> setPlaylist(List<SongModel> songs, int initialIndex) async {
     if (songs.isEmpty) return;
     _currentPlaylist = List<SongModel>.from(songs);
-
-    final audioSources = _currentPlaylist.map((song) {
-      final artUri = song.coverPath.startsWith('assets/')
-          ? Uri.parse("asset:///${song.coverPath}")
-          : (song.coverPath.isNotEmpty ? Uri.file(song.coverPath) : null);
-
-      final tag = MediaItem(
-        id: song.id,
-        album: song.album,
-        title: song.title,
-        artist: song.artist,
-        artUri: artUri,
-      );
-
-      if (song.localPath.startsWith('assets/')) {
-        return AudioSource.asset(song.localPath, tag: tag);
-      } else {
-        return AudioSource.file(song.localPath, tag: tag);
-      }
-    }).toList();
-
-    try {
-      final playlistSource = ConcatenatingAudioSource(children: audioSources);
-      await _player.setAudioSource(playlistSource, initialIndex: initialIndex);
-      
-      _currentIndex = initialIndex;
-      _currentIndexSubject.add(_currentIndex);
-      _currentSongSubject.add(_currentPlaylist[_currentIndex]);
-    } catch (e) {
-      debugPrint("Error setting concatenating audio source: $e");
-      await playAtIndex(initialIndex);
-    }
+    await playAtIndex(initialIndex);
   }
 
-  // Play target index
+  // Play target index using setFilePath (stable fallback)
   Future<void> playAtIndex(int index) async {
     if (index < 0 || index >= _currentPlaylist.length) return;
+    _currentIndex = index;
     final song = _currentPlaylist[index];
 
     // File validation check
@@ -178,8 +134,32 @@ class AudioPlayerService {
       }
     }
 
-    _currentIndex = index;
-    await _player.seek(Duration.zero, index: index);
+    final artUri = song.coverPath.startsWith('assets/')
+        ? Uri.parse("asset:///${song.coverPath}")
+        : (song.coverPath.isNotEmpty ? Uri.file(song.coverPath) : null);
+
+    try {
+      // Load file directly using setFilePath to ensure stable playback on all Android versions
+      await _player.setFilePath(
+        song.localPath,
+        tag: MediaItem(
+          id: song.id,
+          album: song.album,
+          title: song.title,
+          artist: song.artist,
+          artUri: artUri,
+        ),
+      );
+      
+      // Update subjects to trigger stream listeners
+      _currentIndexSubject.add(_currentIndex);
+      _currentSongSubject.add(song);
+    } catch (e) {
+      debugPrint("Error loading file path in player: $e");
+      _currentIndexSubject.add(null);
+      _currentSongSubject.add(null);
+      throw Exception("Codec / Audio format not supported: $e");
+    }
   }
 
   // Queue manipulation
@@ -249,18 +229,45 @@ class AudioPlayerService {
   }
 
   Future<void> next() async {
-    if (_player.hasNext) {
-      await _player.seekToNext();
-    } else if (_player.loopMode == LoopMode.all && _currentPlaylist.isNotEmpty) {
-      await _player.seek(Duration.zero, index: 0);
+    if (_currentPlaylist.isEmpty) return;
+    int nextIndex = _currentIndex + 1;
+    if (_player.shuffleModeEnabled) {
+      nextIndex = Random().nextInt(_currentPlaylist.length);
+    }
+    if (nextIndex < _currentPlaylist.length) {
+      try {
+        await playAtIndex(nextIndex);
+        await play();
+      } catch (e) {
+        await next();
+      }
+    } else if (_player.loopMode == LoopMode.all) {
+      try {
+        await playAtIndex(0);
+        await play();
+      } catch (e) {
+        await next();
+      }
     }
   }
 
   Future<void> previous() async {
-    if (_player.hasPrevious) {
-      await _player.seekToPrevious();
-    } else if (_player.loopMode == LoopMode.all && _currentPlaylist.isNotEmpty) {
-      await _player.seek(Duration.zero, index: _currentPlaylist.length - 1);
+    if (_currentPlaylist.isEmpty) return;
+    int prevIndex = _currentIndex - 1;
+    if (prevIndex >= 0) {
+      try {
+        await playAtIndex(prevIndex);
+        await play();
+      } catch (e) {
+        await previous();
+      }
+    } else if (_player.loopMode == LoopMode.all) {
+      try {
+        await playAtIndex(_currentPlaylist.length - 1);
+        await play();
+      } catch (e) {
+        await previous();
+      }
     }
   }
 
@@ -292,6 +299,14 @@ class AudioPlayerService {
         (position, bufferedPosition, duration) =>
             PositionData(position, bufferedPosition, duration ?? Duration.zero),
       );
+}
+
+class PositionData {
+  final Duration position;
+  final Duration bufferedPosition;
+  final Duration duration;
+
+  PositionData(this.position, this.bufferedPosition, this.duration);
 }
 
 class FileNotFoundException implements Exception {
