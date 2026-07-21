@@ -24,8 +24,9 @@ class SongProvider extends ChangeNotifier {
   final StorageService _storageService;
   final AudioPlayerService _audioService = AudioPlayerService();
 
-  late Box<SongModel> _songsBox;
-  late Box<PlaylistModel> _playlistsBox;
+  Box<SongModel>? _songsBox;
+  Box<PlaylistModel>? _playlistsBox;
+  bool _initialized = false;
 
   List<SongModel> _allSongs = [];
   List<PlaylistModel> _playlists = [];
@@ -216,63 +217,68 @@ class SongProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    _songsBox = await Hive.openBox<SongModel>('songs');
-    _playlistsBox = await Hive.openBox<PlaylistModel>('playlists');
-
-    // Demo/sample seeding removed in v1.2.0 rebrand
-    final demoKeys = _songsBox.keys.where((key) {
-      final song = _songsBox.get(key);
-      return key.toString().startsWith('song_') || (song?.localPath.startsWith('assets/') ?? false);
-    }).toList();
-    if (demoKeys.isNotEmpty) {
-      for (final key in demoKeys) {
-        await _songsBox.delete(key);
-      }
-    }
-
-    // Try to copy default assets locally and update database references
-    await _copyAssetsToLocal();
-
-    _allSongs = _songsBox.values.toList();
-    _playlists = _playlistsBox.values.toList();
-
-    _favoriteSongIds = _storageService.getFavorites();
-    _recentlyPlayedIds = _storageService.getRecentlyPlayed();
-    _moodHistoryLogs = _storageService.getMoodHistory();
-
-    // Restore previous playback state
     try {
-      final lastQueueIds = _storageService.getLastQueue();
-      final lastSongId = _storageService.getLastSongId();
-      final lastPosMs = _storageService.getLastPosition();
+      _songsBox = await Hive.openBox<SongModel>('songs');
+      _playlistsBox = await Hive.openBox<PlaylistModel>('playlists');
+      _initialized = true;
 
-      if (lastQueueIds.isNotEmpty && lastSongId != null) {
-        final List<SongModel> restoredQueue = [];
-        for (final id in lastQueueIds) {
-          final match = _allSongs.firstWhere((s) => s.id == id, orElse: () => _allSongs.first);
-          if (match.id == id) restoredQueue.add(match);
+      // Demo/sample seeding removed in v1.2.0 rebrand
+      final demoKeys = _songsBox!.keys.where((key) {
+        final song = _songsBox!.get(key);
+        return key.toString().startsWith('song_') || (song?.localPath.startsWith('assets/') ?? false);
+      }).toList();
+      if (demoKeys.isNotEmpty) {
+        for (final key in demoKeys) {
+          await _songsBox!.delete(key);
         }
-        
-        final initialIndex = restoredQueue.indexWhere((s) => s.id == lastSongId);
-        if (initialIndex != -1) {
-          await _audioService.setPlaylist(restoredQueue, initialIndex);
-          if (lastPosMs > 0) {
-            await _audioService.seek(Duration(milliseconds: lastPosMs));
+      }
+
+      // Try to copy default assets locally and update database references
+      await _copyAssetsToLocal();
+
+      _allSongs = _songsBox!.values.toList();
+      _playlists = _playlistsBox!.values.toList();
+
+      _favoriteSongIds = _storageService.getFavorites();
+      _recentlyPlayedIds = _storageService.getRecentlyPlayed();
+      _moodHistoryLogs = _storageService.getMoodHistory();
+
+      // Restore previous playback state
+      try {
+        final lastQueueIds = _storageService.getLastQueue();
+        final lastSongId = _storageService.getLastSongId();
+        final lastPosMs = _storageService.getLastPosition();
+
+        if (lastQueueIds.isNotEmpty && lastSongId != null) {
+          final List<SongModel> restoredQueue = [];
+          for (final id in lastQueueIds) {
+            final match = _allSongs.firstWhere((s) => s.id == id, orElse: () => _allSongs.first);
+            if (match.id == id) restoredQueue.add(match);
+          }
+          
+          final initialIndex = restoredQueue.indexWhere((s) => s.id == lastSongId);
+          if (initialIndex != -1) {
+            await _audioService.setPlaylist(restoredQueue, initialIndex);
+            if (lastPosMs > 0) {
+              await _audioService.seek(Duration(milliseconds: lastPosMs));
+            }
           }
         }
+      } catch (e) {
+        debugPrint("Error restoring last playback state: $e");
       }
+
+      // Sync smart mixes and run non-blocking background analysis on boot
+      await updateSmartPlaylists();
+      _analyzeAllUnanalyzedSongs();
+
+      _totalListeningTimeSec = _storageService.getTotalListeningSeconds();
     } catch (e) {
-      debugPrint("Error restoring last playback state: $e");
+      debugPrint("Error loading initial data: $e");
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
-
-    // Sync smart mixes and run non-blocking background analysis on boot
-    await updateSmartPlaylists();
-    _analyzeAllUnanalyzedSongs();
-
-    _totalListeningTimeSec = _storageService.getTotalListeningSeconds();
-
-    _isLoading = false;
-    notifyListeners();
   }
 
   // Copy assets from bundle to local directory to satisfy local-only file playback
@@ -281,7 +287,7 @@ class SongProvider extends ChangeNotifier {
       final appDir = await getApplicationDocumentsDirectory();
       bool updatedAny = false;
       
-      for (var song in _songsBox.values) {
+      for (var song in _songsBox!.values) {
         if (song.localPath.startsWith('assets/')) {
           final localDest = "${appDir.path}/${song.localPath}";
           final file = File(localDest);
@@ -293,21 +299,21 @@ class SongProvider extends ChangeNotifier {
               await file.writeAsBytes(bytes);
               
               final updated = song.copyWith(localPath: localDest);
-              await _songsBox.put(song.id, updated);
+              await _songsBox!.put(song.id, updated);
               updatedAny = true;
             } catch (e) {
               debugPrint("Asset not packaged: ${song.localPath}");
             }
           } else {
             final updated = song.copyWith(localPath: localDest);
-            await _songsBox.put(song.id, updated);
+            await _songsBox!.put(song.id, updated);
             updatedAny = true;
           }
         }
       }
       
       if (updatedAny) {
-        _allSongs = _songsBox.values.toList();
+        _allSongs = _songsBox!.values.toList();
       }
     } catch (e) {
       debugPrint("Error copying default assets to local sandbox: $e");
@@ -331,13 +337,13 @@ class SongProvider extends ChangeNotifier {
         final mixName = entry.key;
         final allowedMoods = entry.value;
 
-        final matchedIds = _songsBox.values
+        final matchedIds = _songsBox!.values
             .where((s) => allowedMoods.contains(s.primaryMood.toLowerCase()) || 
                           allowedMoods.contains(s.secondaryMood.toLowerCase()))
             .map((s) => s.id)
             .toList();
 
-        var playlist = _playlistsBox.values.firstWhere(
+        var playlist = _playlistsBox!.values.firstWhere(
           (p) => p.name == mixName,
           orElse: () => PlaylistModel(
             id: 'smart_${mixName.replaceAll(" ", "_").toLowerCase()}',
@@ -347,12 +353,12 @@ class SongProvider extends ChangeNotifier {
         );
 
         final updated = playlist.copyWith(songIds: matchedIds);
-        await _playlistsBox.put(playlist.id, updated);
+        await _playlistsBox!.put(playlist.id, updated);
       }
 
       // Sync Favorites Smart Mix
       final favIds = favoriteSongs.map((s) => s.id).toList();
-      var favPlaylist = _playlistsBox.values.firstWhere(
+      var favPlaylist = _playlistsBox!.values.firstWhere(
         (p) => p.name == 'Favorites',
         orElse: () => PlaylistModel(
           id: 'smart_favorites',
@@ -360,9 +366,9 @@ class SongProvider extends ChangeNotifier {
           songIds: [],
         ),
       );
-      await _playlistsBox.put(favPlaylist.id, favPlaylist.copyWith(songIds: favIds));
+      await _playlistsBox!.put(favPlaylist.id, favPlaylist.copyWith(songIds: favIds));
 
-      _playlists = _playlistsBox.values.toList();
+      _playlists = _playlistsBox!.values.toList();
       notifyListeners();
     } catch (e) {
       debugPrint("Error syncing smart playlists: $e");
@@ -371,7 +377,7 @@ class SongProvider extends ChangeNotifier {
 
   // Background Mood Detection analysis task queue
   Future<void> _analyzeAllUnanalyzedSongs() async {
-    final unanalyzed = _songsBox.values
+    final unanalyzed = _songsBox!.values
         .where((s) => s.analyzedAt.isEmpty || s.analysisVersion != MoodEngine.currentVersion)
         .toList();
         
@@ -406,8 +412,8 @@ class SongProvider extends ChangeNotifier {
         mood: result.primaryMood,
       );
 
-      await _songsBox.put(song.id, updated);
-      _allSongs = _songsBox.values.toList();
+      await _songsBox!.put(song.id, updated);
+      _allSongs = _songsBox!.values.toList();
       
       await updateSmartPlaylists();
       
@@ -422,8 +428,8 @@ class SongProvider extends ChangeNotifier {
         analyzedAt: DateTime.now().toIso8601String(),
         mood: "Unknown",
       );
-      await _songsBox.put(song.id, updated);
-      _allSongs = _songsBox.values.toList();
+      await _songsBox!.put(song.id, updated);
+      _allSongs = _songsBox!.values.toList();
       await updateSmartPlaylists();
       _analysisStatus = "Mood unavailable";
     } finally {
@@ -447,8 +453,8 @@ class SongProvider extends ChangeNotifier {
       confidence: 1.0,
       analyzedAt: DateTime.now().toIso8601String(),
     );
-    await _songsBox.put(song.id, updated);
-    _allSongs = _songsBox.values.toList();
+    await _songsBox!.put(song.id, updated);
+    _allSongs = _songsBox!.values.toList();
     
     await updateSmartPlaylists();
     notifyListeners();
@@ -483,7 +489,7 @@ class SongProvider extends ChangeNotifier {
       );
 
       for (var info in list) {
-        final exists = _songsBox.values.any((s) => s.localPath == info.data);
+        final exists = _songsBox!.values.any((s) => s.localPath == info.data);
         if (!exists && info.data.isNotEmpty) {
           final sec = ((info.duration ?? 0) / 1000).round();
           final min = (sec / 60).floor();
@@ -505,10 +511,10 @@ class SongProvider extends ChangeNotifier {
             lastPlayed: '',
             dateAdded: DateTime.now().toIso8601String(),
           );
-          await _songsBox.put(newSong.id, newSong);
+          await _songsBox!.put(newSong.id, newSong);
         }
       }
-      _allSongs = _songsBox.values.toList();
+      _allSongs = _songsBox!.values.toList();
       _analyzeAllUnanalyzedSongs();
     } catch (e) {
       debugPrint("Error scanning device audio: $e");
@@ -584,24 +590,24 @@ class SongProvider extends ChangeNotifier {
 
   // Save selected song info
   Future<void> saveImportedSong(SongModel song) async {
-    await _songsBox.put(song.id, song);
-    _allSongs = _songsBox.values.toList();
+    await _songsBox!.put(song.id, song);
+    _allSongs = _songsBox!.values.toList();
     notifyListeners();
     analyzeAndAssignMood(song);
   }
 
   // Long press edits song details
   Future<void> updateSongDetails(SongModel updated) async {
-    await _songsBox.put(updated.id, updated);
-    _allSongs = _songsBox.values.toList();
+    await _songsBox!.put(updated.id, updated);
+    _allSongs = _songsBox!.values.toList();
     await updateSmartPlaylists();
     notifyListeners();
   }
 
   // Deletes song metadata
   Future<void> deleteSong(SongModel song) async {
-    await _songsBox.delete(song.id);
-    _allSongs = _songsBox.values.toList();
+    await _songsBox!.delete(song.id);
+    _allSongs = _songsBox!.values.toList();
     notifyListeners();
   }
 
@@ -613,32 +619,32 @@ class SongProvider extends ChangeNotifier {
       songIds: [],
       emoji: emoji,
     );
-    await _playlistsBox.put(playlist.id, playlist);
-    _playlists = _playlistsBox.values.toList();
+    await _playlistsBox!.put(playlist.id, playlist);
+    _playlists = _playlistsBox!.values.toList();
     notifyListeners();
   }
 
   Future<void> deletePlaylist(String playlistId) async {
-    await _playlistsBox.delete(playlistId);
-    _playlists = _playlistsBox.values.toList();
+    await _playlistsBox!.delete(playlistId);
+    _playlists = _playlistsBox!.values.toList();
     notifyListeners();
   }
 
   Future<void> renamePlaylist(String playlistId, String newName, {String? emoji}) async {
-    final old = _playlistsBox.get(playlistId);
+    final old = _playlistsBox!.get(playlistId);
     if (old != null) {
       final updated = old.copyWith(
         name: newName,
         emoji: emoji ?? old.emoji,
       );
-      await _playlistsBox.put(playlistId, updated);
-      _playlists = _playlistsBox.values.toList();
+      await _playlistsBox!.put(playlistId, updated);
+      _playlists = _playlistsBox!.values.toList();
       notifyListeners();
     }
   }
 
   Future<void> reorderSongsInPlaylist(String playlistId, int oldIndex, int newIndex) async {
-    final old = _playlistsBox.get(playlistId);
+    final old = _playlistsBox!.get(playlistId);
     if (old != null) {
       final updatedIds = List<String>.from(old.songIds);
       if (oldIndex >= 0 && newIndex >= 0 && oldIndex < updatedIds.length && newIndex <= updatedIds.length) {
@@ -651,33 +657,33 @@ class SongProvider extends ChangeNotifier {
         updatedIds.insert(targetIndex, item);
         
         final updated = old.copyWith(songIds: updatedIds);
-        await _playlistsBox.put(playlistId, updated);
-        _playlists = _playlistsBox.values.toList();
+        await _playlistsBox!.put(playlistId, updated);
+        _playlists = _playlistsBox!.values.toList();
         notifyListeners();
       }
     }
   }
 
   Future<void> addSongToPlaylist(String playlistId, String songId) async {
-    final old = _playlistsBox.get(playlistId);
+    final old = _playlistsBox!.get(playlistId);
     if (old != null) {
       if (!old.songIds.contains(songId)) {
         final updatedIds = List<String>.from(old.songIds)..add(songId);
         final updated = old.copyWith(songIds: updatedIds);
-        await _playlistsBox.put(playlistId, updated);
-        _playlists = _playlistsBox.values.toList();
+        await _playlistsBox!.put(playlistId, updated);
+        _playlists = _playlistsBox!.values.toList();
         notifyListeners();
       }
     }
   }
 
   Future<void> removeSongFromPlaylist(String playlistId, String songId) async {
-    final old = _playlistsBox.get(playlistId);
+    final old = _playlistsBox!.get(playlistId);
     if (old != null) {
       final updatedIds = List<String>.from(old.songIds)..remove(songId);
       final updated = old.copyWith(songIds: updatedIds);
-      await _playlistsBox.put(playlistId, updated);
-      _playlists = _playlistsBox.values.toList();
+      await _playlistsBox!.put(playlistId, updated);
+      _playlists = _playlistsBox!.values.toList();
       notifyListeners();
     }
   }
@@ -794,17 +800,19 @@ class SongProvider extends ChangeNotifier {
 
   // Check if song is favorited
   bool isFavorite(String songId) {
-    final song = _songsBox.get(songId);
+    if (!_initialized || _songsBox == null) return false;
+    final song = _songsBox!.get(songId);
     return song?.favorite ?? false;
   }
 
   // Toggle favorite status
   Future<void> toggleFavorite(SongModel song) async {
-    final current = _songsBox.get(song.id);
+    if (!_initialized || _songsBox == null) return;
+    final current = _songsBox!.get(song.id);
     if (current != null) {
       final updated = current.copyWith(favorite: !current.favorite);
-      await _songsBox.put(song.id, updated);
-      _allSongs = _songsBox.values.toList();
+      await _songsBox!.put(song.id, updated);
+      _allSongs = _songsBox!.values.toList();
       
       if (updated.favorite) {
         triggerConfetti();
@@ -833,14 +841,16 @@ class SongProvider extends ChangeNotifier {
     }
     await _storageService.saveRecentlyPlayed(_recentlyPlayedIds);
 
-    final current = _songsBox.get(song.id);
-    if (current != null) {
-      final updated = current.copyWith(
-        playCount: current.playCount + 1,
-        lastPlayed: DateTime.now().toIso8601String(),
-      );
-      await _songsBox.put(song.id, updated);
-      _allSongs = _songsBox.values.toList();
+    if (_initialized && _songsBox != null) {
+      final current = _songsBox!.get(song.id);
+      if (current != null) {
+        final updated = current.copyWith(
+          playCount: current.playCount + 1,
+          lastPlayed: DateTime.now().toIso8601String(),
+        );
+        await _songsBox!.put(song.id, updated);
+        _allSongs = _songsBox!.values.toList();
+      }
     }
     notifyListeners();
   }
@@ -938,8 +948,8 @@ class SongProvider extends ChangeNotifier {
       final backupFile = File('${appDir.path}/moodtunes_pro_backup.json');
 
       final Map<String, dynamic> data = {
-        'songs': _songsBox.values.map((s) => s.toJson()).toList(),
-        'playlists': _playlistsBox.values.map((p) => {
+        'songs': _songsBox!.values.map((s) => s.toJson()).toList(),
+        'playlists': _playlistsBox!.values.map((p) => {
           'id': p.id,
           'name': p.name,
           'songIds': p.songIds,
@@ -965,8 +975,8 @@ class SongProvider extends ChangeNotifier {
       final String raw = await backupFile.readAsString();
       final Map<String, dynamic> data = jsonDecode(raw);
 
-      await _songsBox.clear();
-      await _playlistsBox.clear();
+      await _songsBox!.clear();
+      await _playlistsBox!.clear();
 
       final List songsList = data['songs'] as List;
       for (var sJson in songsList) {
@@ -992,7 +1002,7 @@ class SongProvider extends ChangeNotifier {
           bitrate: sJson['bitrate'] as int?,
           sampleRate: sJson['sampleRate'] as int?,
         );
-        await _songsBox.put(song.id, song);
+        await _songsBox!.put(song.id, song);
       }
 
       final List playlistsList = data['playlists'] as List;
@@ -1002,11 +1012,11 @@ class SongProvider extends ChangeNotifier {
           name: pMap['name'] as String,
           songIds: List<String>.from(pMap['songIds'] as List),
         );
-        await _playlistsBox.put(playlist.id, playlist);
+        await _playlistsBox!.put(playlist.id, playlist);
       }
 
-      _allSongs = _songsBox.values.toList();
-      _playlists = _playlistsBox.values.toList();
+      _allSongs = _songsBox!.values.toList();
+      _playlists = _playlistsBox!.values.toList();
       notifyListeners();
       return true;
     } catch (e) {

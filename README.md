@@ -65,9 +65,20 @@ lib/
    flutter build apk --release
    ```
 
-## Screenshots
+## 📸 Screenshots
 
-*Note: Visual interfaces and layouts can be previewed inside the design assets folders.*
+| Splash Screen | Home Dashboard | Music Player |
+| :---: | :---: | :---: |
+| ![Splash Screen](assets/screenshots/splash.png) | ![Home Dashboard](assets/screenshots/home.png) | ![Music Player](assets/screenshots/player.png) |
+
+| Mood Selection | Play Queue | Your Library |
+| :---: | :---: | :---: |
+| ![Mood Selection](assets/screenshots/mood_selection.png) | ![Play Queue](assets/screenshots/playlist.png) | ![Your Library](assets/screenshots/library.png) |
+
+| Settings | Sleep Timer | Weekly Statistics |
+| :---: | :---: | :---: |
+| ![Settings](assets/screenshots/settings.png) | ![Sleep Timer](assets/screenshots/sleep_timer.png) | ![Weekly Statistics](assets/screenshots/statistics.png) |
+
 
 ## APK Download
 

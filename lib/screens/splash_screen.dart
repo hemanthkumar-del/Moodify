@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../core/constants/app_colors.dart';
 import '../widgets/music_wave.dart';
 import 'welcome_screen.dart';
+import 'main_navigation_screen.dart';
 import '../core/utils/page_transitions.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -21,7 +22,7 @@ class _SplashScreenState extends State<SplashScreen> {
     Timer(const Duration(milliseconds: 2500), () {
       if (mounted) {
         Navigator.of(context).pushReplacement(
-          FadeScalePageRoute(page: const WelcomeScreen()),
+          FadeScalePageRoute(page: MainNavigationScreen()),
         );
       }
     });

@@ -137,12 +137,37 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                             const SizedBox(height: 4),
-                            Text(
-                              "Moodify",
-                              style: TextStyle(
-                                fontSize: 26,
-                                fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white : AppColors.lightTextPrimary,
+                            GestureDetector(
+                              onTap: () {
+                                Navigator.of(context).push(
+                                  FadeScalePageRoute(
+                                    page: SongDetailsScreen(
+                                      song: SongModel(
+                                        id: 'preview_1',
+                                        title: 'Midnight Serenade',
+                                        artist: 'Lunar Echoes',
+                                        album: 'Celestial Vibes',
+                                        genre: 'Ambient Chill',
+                                        duration: '03:34',
+                                        mood: 'Relax',
+                                        localPath: '',
+                                        coverPath: '',
+                                        favorite: true,
+                                        playCount: 12,
+                                        lastPlayed: '',
+                                        dateAdded: DateTime.now().toIso8601String(),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: Text(
+                                "Moodify",
+                                style: TextStyle(
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark ? Colors.white : AppColors.lightTextPrimary,
+                                ),
                               ),
                             ),
                           ],
@@ -368,15 +393,30 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: GestureDetector(
                         onTap: () async {
                           final rand = provider.getRandomSong();
+                          final targetSong = rand ?? SongModel(
+                            id: 'preview_1',
+                            title: 'Midnight Serenade',
+                            artist: 'Lunar Echoes',
+                            album: 'Celestial Vibes',
+                            genre: 'Ambient Chill',
+                            duration: '03:34',
+                            mood: 'Relax',
+                            localPath: '',
+                            coverPath: '',
+                            favorite: false,
+                            playCount: 0,
+                            lastPlayed: '',
+                            dateAdded: DateTime.now().toIso8601String(),
+                          );
                           if (rand != null) {
-                            final success = await provider.playSong(rand, provider.allSongs, context: context);
-                            if (success && context.mounted) {
-                              Navigator.of(context).push(
-                                FadeScalePageRoute(
-                                  page: SongDetailsScreen(song: rand),
-                                ),
-                              );
-                            }
+                            await provider.playSong(rand, provider.allSongs, context: context);
+                          }
+                          if (context.mounted) {
+                            Navigator.of(context).push(
+                              FadeScalePageRoute(
+                                page: SongDetailsScreen(song: targetSong),
+                              ),
+                            );
                           }
                         },
                         child: GlassCard(

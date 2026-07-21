@@ -8,7 +8,6 @@ import 'providers/theme_provider.dart';
 import 'providers/song_provider.dart';
 import 'services/storage_service.dart';
 import 'services/song_service.dart';
-import 'services/audio_player_service.dart';
 import 'screens/splash_screen.dart';
 
 void main() async {
@@ -19,19 +18,20 @@ void main() async {
   Hive.registerAdapter(SongModelAdapter());
   Hive.registerAdapter(PlaylistModelAdapter());
   
-  await AudioPlayerService.initBackground();
-
-  
   final storageService = StorageService();
   await storageService.init();
-
+  
   final songService = SongService();
-
+  
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => ThemeProvider(storageService)),
-        ChangeNotifierProvider(create: (_) => SongProvider(songService, storageService)),
+        ChangeNotifierProvider(
+          create: (_) => ThemeProvider(storageService),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => SongProvider(songService, storageService),
+        ),
       ],
       child: const MyApp(),
     ),
@@ -39,7 +39,7 @@ void main() async {
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
