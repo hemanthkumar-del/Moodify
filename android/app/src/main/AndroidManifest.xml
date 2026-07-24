@@ -10,7 +10,8 @@
     <application
         android:label="Moodify"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round">
         
         <!-- Service for background audio playback -->
         <service android:name="com.ryanheise.audioservice.AudioService"
