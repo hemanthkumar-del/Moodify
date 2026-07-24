@@ -83,7 +83,7 @@ lib/
 ## APK Download
 
 The compiled production release bundle is available inside the GitHub Releases tab:
-👉 **[Download APK v1.2.0](https://github.com/hemanthkumar-del/MoodTunes-Pro/releases/download/v1.2.0/app-release.apk)**
+👉 **[Download APK v1.2.1](https://github.com/hemanthkumar-del/Moodify/releases/download/v1.2.1/app-release.apk)**
 
 ## Future Improvements
 
